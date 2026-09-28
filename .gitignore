@@ -26,11 +26,10 @@ src_nc2000/
 src_nc2000_hw/
 _nc2k_src/
 
-# ---- 语音 DSP 模拟器是独立仓库（见 README）----
-# 本地 checkout 在这个目录里，但不属于本仓库。
-# 想换成 git submodule：删掉下面这行，再
-#   git submodule add -f <SPCE061A 仓库 URL> spce061a
-spce061a/
+# ---- 语音 DSP 模拟器是独立仓库，用 submodule 引入（见 .gitmodules）----
+# 注意：spce061a/ **不能**写进 .gitignore，否则 git 不认这个 submodule。
+# 该仓库自带的 .gitignore 会忽略 rom/*.dat 与生成出来的 firmware_061*.c，
+# 所以本地自带的固件不会让 submodule 显示为 dirty。
 
 # ---- 杂项 ----
 __pycache__/

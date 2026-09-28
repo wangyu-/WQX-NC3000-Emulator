@@ -2,16 +2,22 @@
 
 把 wangyu-/NC2000 的模拟器源码改造成能跑 **NC3000 官方固件**（含真机 NAND 数据）的模拟器。
 
-> **两个仓库**：语音 DSP（SPCE061A）已经拆成独立仓库，本仓库只保留 6502 主控这一侧。
-> 本仓库编译时需要一个 `spce061a/` 目录（里面是那个独立仓库的代码）：
+> **两个仓库**：语音 DSP（SPCE061A）是独立仓库，通过 **git submodule** 挂在 `spce061a/`
+> （[yao90s/WQX-SPCE061-Emulator](https://github.com/yao90s/WQX-SPCE061-Emulator)，见 `.gitmodules`）。
 >
 > ```powershell
-> git clone https://github.com/yao90s/WQX-SPCE061-Emulator spce061a     # 简单做法
-> # 或者：git submodule add -f https://github.com/yao90s/WQX-SPCE061-Emulator spce061a
-> #        （同时把 .gitignore 里 "spce061a/" 那行删掉）
+> git clone --recursive https://github.com/yao90s/WQX-NC3000-Emulator    # 连子模块一起拉
+> # 已经 clone 过的：git submodule update --init --recursive
 > ```
 >
-> `spce061a/` 里的芯片模拟器、播放器、主机探针与文档见那个仓库的 README。
+> 子模块里**不含 061 固件**（凌阳版权物）：把你自己 dump 的 `061.dat` 放进 `spce061a/rom/`，
+> 再生成 C 数组，`src_nc3000` 才编得过：
+>
+> ```powershell
+> node spce061a\tools\mk_fw_c.js spce061a\rom\061.dat spce061a\emu\firmware_061.c firmware_061
+> ```
+>
+> 芯片模拟器、播放器、主机探针与芯片文档见那个仓库的 README。
 
 * **文档入口：[docs/README.md](docs/README.md)**（现状 / 快速上手 / 结论速查 / 文档地图）
 * **最新交接文档：[docs/交接文档_2026-09-27_09-28.md](docs/交接文档_2026-09-27_09-28.md)**（本轮做完什么 / 还剩什么 / 踩过的坑）
