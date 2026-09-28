@@ -1,0 +1,42 @@
+# 注意：gitignore 只认行首的 #，**不要**在规则后面写行尾注释，否则整行都不是规则。
+
+# ---- 构建产物 ----
+obj/
+obj_xp32/
+*.o
+*.exe
+*.dll
+
+# ---- 本地素材：体积大 + 三方版权，不进仓库 ----
+# 构建依赖：跑 toolchain\download.ps1 自己下（mingw / SDL2）
+toolchain/
+# 凌阳手册 / SDK 例程 / 教材（第三方版权）
+info/
+# 测试截图、wav、bin
+out/
+# ★ 官方固件 + 真机 NAND dump：请自备（可能还含个人数据）
+roms/
+# 绿色包，本地生成即可
+nc3k_emu/
+# 语音 DSP 的编译产物（源码是另一个仓库，见下）
+spce061a/build/
+
+# ---- 上游 NC2000 源码：链过去就行，不用 vendor ----
+src_nc2000/
+src_nc2000_hw/
+_nc2k_src/
+
+# ---- 语音 DSP 模拟器是独立仓库（见 README）----
+# 本地 checkout 在这个目录里，但不属于本仓库。
+# 想换成 git submodule：删掉下面这行，再
+#   git submodule add -f <SPCE061A 仓库 URL> spce061a
+spce061a/
+
+# ---- 杂项 ----
+__pycache__/
+*.pyc
+*.tmp
+*.log.tmp
+
+# NGPC/NeoPop 那套第三方开发包，和本项目无关（想一起发布就删掉这行）
+tools/ngpc/

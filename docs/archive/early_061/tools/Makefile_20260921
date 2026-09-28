@@ -1,0 +1,46 @@
+# SACM A1600 / MS01 command line players (Linux/macOS)
+CC      ?= cc
+CFLAGS  ?= -O2 -Wall -Wextra
+LDLIBS   = -lasound          # drop if you only use -o (WAV output)
+
+SRC = main_linux.c unsp.c a1600.c a1600_image.c
+SRC_MS01 = main_linux_ms01.c unsp.c ms01_lib.c
+SRC_MS01_CL = main_linux_ms01.c unsp.c ms01_image_drums.c
+SRC_MS01_ND = main_linux_ms01.c unsp.c ms01_image.c
+SRC_FW   = main_linux_fwstream.c unsp.c spce061a.c firmware_061.c
+
+all: a1600play ms01play ms01play-classic ms01play-nodrum fwstream
+
+a1600play: $(SRC)
+	$(CC) $(CFLAGS) -o $@ $(SRC) $(LDLIBS)
+
+# MS01, "song slot" build: ROM holds the library + all 20 drums, the score is
+# loaded from a file into the slot at 0xC200 and slides if it is bigger.
+#   ./ms01play SONG/HK1.BIN -o out.wav
+ms01play: $(SRC_MS01)
+	$(CC) $(CFLAGS) -DMS01_SLOT -o $@ $(SRC_MS01)
+
+# MS01, classic build: the SDK's twelve songs stay in ROM (drums rebuilt in by
+# work/mk_ms01_drums.py, which had to sacrifice LA1 to fit them).
+ms01play-classic: $(SRC_MS01_CL)
+	$(CC) $(CFLAGS) -o $@ $(SRC_MS01_CL)
+
+# MS01 as shipped by the SDK: no drum resources at all (reference build)
+ms01play-nodrum: $(SRC_MS01_ND)
+	$(CC) $(CFLAGS) -o $@ $(SRC_MS01_ND)
+
+# Full 061.dat firmware + real peripheral model: drives the chip's own stream
+# protocol over the emulated UART and dumps what comes out of P_DAC2.
+#   ./fwstream SONG.a16 out.wav
+fwstream: $(SRC_FW)
+	$(CC) $(CFLAGS) -o $@ $(SRC_FW)
+
+# no-ALSA build (file conversion only)
+a1600play-nowav: $(SRC)
+	$(CC) $(CFLAGS) -DNO_ALSA -o a1600play $(SRC)
+
+clean:
+	rm -f a1600play a1600play-nowav ms01play ms01play-classic ms01play-nodrum \
+	      fwstream *.o
+
+.PHONY: all clean
