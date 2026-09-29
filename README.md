@@ -35,6 +35,6 @@
 * **本仓库不含 ROM**：请自行从网络搜索下载运行所需的NOR和NAND数据，文件放进 `roms\`
   （见 `tools\nc3000_rom_prep.ps1`）。构建依赖（mingw/SDL2）用 `toolchain\download.ps1` 拉取。
 
-主要目录：`src_nc3000/` 模拟器源码、`tools/` 分析调试脚本、`docs/` 文档、`roms/`（自备 ROM）、`spce061a/`。
+主要目录：`src_nc3000/` 模拟器源码、`tools/` 分析调试脚本、`roms/`（自备 ROM）、`spce061a/`（子模块）。
 
 许可：上游 wangyu-/NC2000 是 **GPL-3.0**，本仓库作为衍生作品同样以 GPL-3.0 发布（见 `LICENSE`）。
