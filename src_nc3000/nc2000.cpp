@@ -106,16 +106,11 @@ void LoadNC2k(){
 		/* start the SPCE061A speech coprocessor before the main firmware runs:
 		 * NC3000's BIOS talks to it during boot (0xBB handshake etc.) */
 		nc3_dsp_boot();
-		/* the RTC / battery backed registers must not read as all-zero at
-		 * power on: the NC3000 BIOS inspects them while deciding how to boot
-		 * (an unset RTC makes it take a completely different path). */
-		void sync_time_2000();
-		sync_time_2000();
 	}
 
 	if(enable_load_state){
 		load_state();
-		if(nc2000mode){
+		if(nc2000mode||nc3000mode){
 			void sync_time_2000();
 			if(enable_auto_time_sync) sync_time_2000();
 		}
