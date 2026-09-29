@@ -1,4 +1,5 @@
 #include <SDL2/SDL.h>
+#include <chrono>
 #include "comm.h"
 #include "compare/c6502.h"
 #include "nc2000.h"
@@ -40,6 +41,20 @@ inline void handle_pixel(int u,int v,const unsigned char * color_arr[], int idx)
 int render_cnt=0;
 u64_t last_inner_render_tick=0;
 u64_t last_outer_render_tick=0;
+
+/* NC3_PERF：每帧渲染（LCD 瓦片 + 纹理上传 + 呈现）花掉的墙上时间（微秒） */
+double nc3_lcd_busy_us = 0.0;
+namespace {
+struct LcdPerfTimer {
+    std::chrono::steady_clock::time_point t0;
+    LcdPerfTimer() : t0(std::chrono::steady_clock::now()) {}
+    ~LcdPerfTimer() {
+        nc3_lcd_busy_us += (double)std::chrono::duration_cast<std::chrono::microseconds>(
+                               std::chrono::steady_clock::now() - t0).count();
+    }
+};
+}  /* namespace */
+
 void Render(u64_t tick) {
   extern SDL_Renderer* renderer;
   extern MyLCDView*  lcdview;
@@ -48,6 +63,7 @@ void Render(u64_t tick) {
     return; //not time to render
   }
   last_inner_render_tick= tick;
+  LcdPerfTimer _perf;      /* NC3_PERF：只量真正画图的那一帧 */
 
   unsigned char &lcden = nc2k_states.lcden;
   unsigned char &lcdon = nc2k_states.lcdon;

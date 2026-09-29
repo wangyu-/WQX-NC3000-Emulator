@@ -39,6 +39,10 @@ int      nc3_dsp_write(uint8_t byte);
 void     nc3_dsp_run(int steps);
 /* error counters / diagnostics */
 void     nc3_dsp_stats(void);
+
+/* NC3_PERF（慢机器排查"声音被拖慢"用）：累计"跑 061"用掉的墙上时间（微秒）。
+ * 由 nc3_dsp_run() 自己累加，配合 main.cpp 每秒一行的 [perf] 报表一起看。 */
+extern double nc3_dsp_busy_us;
 /* pull decoded audio (0x8000 centred, already offset to int16) */
 int      nc3_dsp_audio(int16_t *out, int n);
 /* the DAC sample rate the 061 firmware is currently running at (Hz) */

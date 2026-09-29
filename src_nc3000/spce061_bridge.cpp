@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <chrono>
 
 #include "comm.h"
 #include "state.h"
@@ -61,6 +62,21 @@ static uint16_t g_fw_img[32256];
  */
 static int g_use_nand = 0;
 int nc3_dsp_verbose = 0;
+
+/* NC3_PERF：跑 061 累计花掉的墙上时间（微秒），见 spce061_bridge.h。 */
+double nc3_dsp_busy_us = 0.0;
+
+namespace {
+/* 析构时累加 —— nc3_dsp_run() 有多个 return，这样不必在每个出口手写一遍。 */
+struct PerfTimer {
+    std::chrono::steady_clock::time_point t0;
+    PerfTimer() : t0(std::chrono::steady_clock::now()) {}
+    ~PerfTimer() {
+        nc3_dsp_busy_us += (double)std::chrono::duration_cast<std::chrono::microseconds>(
+                               std::chrono::steady_clock::now() - t0).count();
+    }
+};
+}  /* namespace */
 
 /* fractional DAC-sample accumulator: the audio clock is derived from the main
  * CPU's time base (see nc3_dsp_run), not from the 061's instruction count. */
@@ -266,6 +282,7 @@ int nc3_dsp_write(uint8_t byte) {
 
 void nc3_dsp_run(int steps) {
     if (!g_up || steps <= 0) return;
+    PerfTimer _perf;                    /* NC3_PERF：量这一片跑 061 用掉的墙上时间 */
     bool gate = (g_dsp.cpu.ram[0x0000] & 0x1000u) != 0;
     /* 061 的"解码门"从 1 落到 0 = 这一首/这一段放完了（或主控让它停了）：
      * 把还没播出去的残留淡出丢掉，否则会被停止后的低采样率拉长成怪声（见 sound.cpp）。*/

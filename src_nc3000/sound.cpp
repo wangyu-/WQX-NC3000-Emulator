@@ -4,6 +4,7 @@
 #include "spce061_bridge.h"
 #include <SDL2/SDL.h>
 #include <cstdlib>
+#include <chrono>
 
 extern nc2k_states_t nc2k_states;
 
@@ -15,6 +16,8 @@ uint32_t dsp061_overruns = 0;
 uint32_t dsp061_starves = 0;   /* resampler needed a sample but the queue was empty */
 uint32_t dsp061_consumed = 0;
 uint32_t dsp061_pushed = 0;
+/* NC3_PERF：音频回调（重采样+混音）累计花掉的墙上时间（微秒） */
+double dsp061_mix_busy_us = 0.0;
 int dsp061_drain_disabled = 0;   /* set by the headless tool when it taps the raw stream */
 /*
 =============
@@ -419,7 +422,12 @@ static void audio_mix_cb(void* userdata, Uint8* stream, int len_bytes) {
     (void)userdata;
     Sint16* out = (Sint16*)stream;
     const int frames = len_bytes / (int)sizeof(Sint16);
+    /* NC3_PERF：量音频回调（重采样 + 混音）花掉的墙上时间 */
+    double t0 = (double)std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count();
     mix_block(out, frames);
+    dsp061_mix_busy_us += (double)std::chrono::duration_cast<std::chrono::microseconds>(
+                              std::chrono::steady_clock::now().time_since_epoch()).count() - t0;
     if(g_wav_fp) wav_write(out, frames);
 }
 

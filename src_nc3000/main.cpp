@@ -16,6 +16,17 @@
 #include "console.h"
 #include "lcdstripe/lcdpainter.h"
 
+/*
+ * NC3_PERF：慢机器排查"声音被拖慢"用的计时与计数器（墙上时间，微秒）。
+ * 每秒打一行 [perf]，见主循环末尾。
+ */
+static uint64_t g_emu_ms_total = 0;      /* 累计已模拟的毫秒数 */
+static double   g_slice_busy_us = 0.0;   /* 花在 RunTimeSlice（6502+LCD）里的墙上时间 */
+static double   perf_now_us(void) {
+    return (double)std::chrono::duration_cast<std::chrono::microseconds>(
+               std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 #if defined(_WIN32)
 #include <windows.h>
 #endif
@@ -153,7 +164,12 @@ void main_loop() {
       SDL_Delay(200);
     }
     if(! power_save){
-      RunTimeSlice(SLICE_INTERVAL);
+      {
+        double t0 = perf_now_us();
+        RunTimeSlice(SLICE_INTERVAL);
+        g_slice_busy_us += perf_now_us() - t0;
+        g_emu_ms_total += SLICE_INTERVAL;
+      }
     }
   
     if(reload_pending){
@@ -289,6 +305,55 @@ void main_loop() {
       if(exceed>10){
         if(debug_level>=1) printf("oops sleep too much %lld\n",exceed);
       }
+    }
+
+    /*
+     * NC3_PERF=1：每 1000 ms 墙上时间打一行性能报表（慢机器上"声音被拖慢"用这个查）。
+     *   speed      = 模拟时间 / 墙上时间，**< 1.00 就一定拖音**（声卡按墙上时间放，模拟跟不上）
+     *  061 / 6502 / lcd / mix = 各段占墙上时间的百分比：
+     *     061  = 跑 061（µ'nSP 解释器）；6502 = 主控那一片，去掉 061 之后的净额；
+     *     lcd  = 每帧渲染（LCD 瓦片 + 纹理上传 + 呈现）；mix = 音频回调（重采样+混音）
+     *   q / starv+ = 音频队列水位 / 这一秒"要样本但没有、只能补 0"的次数
+     *                （**只在真在放音时有意义**：空闲时 rate≈8k、队列本来就没数据，
+     *                 补的是静音，starv 一直涨是正常的）
+     */
+    if (nc3000mode && getenv("NC3_PERF")) {
+        static uint64_t last_wall = 0, last_emu = 0, last_starv = 0, last_ovr = 0;
+        static double   last_dsp_us = 0.0, last_slice_us = 0.0;
+        static double   last_lcd_us = 0.0, last_mix_us = 0.0;
+        extern double   nc3_dsp_busy_us, nc3_lcd_busy_us, dsp061_mix_busy_us;
+        extern uint32_t dsp061_starves, dsp061_overruns;
+        uint64_t now_wall = SDL_GetTicks();
+        if (last_wall == 0) {
+            last_wall = now_wall;       last_emu = g_emu_ms_total;
+            last_dsp_us = nc3_dsp_busy_us; last_slice_us = g_slice_busy_us;
+            last_lcd_us = nc3_lcd_busy_us; last_mix_us = dsp061_mix_busy_us;
+            last_starv = dsp061_starves;   last_ovr = dsp061_overruns;
+        } else if (now_wall - last_wall >= 1000) {
+            uint64_t wall = now_wall - last_wall, emu = g_emu_ms_total - last_emu;
+            double dsp_ms = (nc3_dsp_busy_us - last_dsp_us) / 1000.0;
+            double slice_ms = (g_slice_busy_us - last_slice_us) / 1000.0;
+            double lcd_ms = (nc3_lcd_busy_us - last_lcd_us) / 1000.0;
+            double mix_ms = (dsp061_mix_busy_us - last_mix_us) / 1000.0;
+            double cpu_ms = slice_ms - dsp_ms;          /* 主控 6502 那一侧的净额 */
+            if (cpu_ms < 0.0) cpu_ms = 0.0;
+            printf("[perf] wall=%llums emu=%llums speed=%.2fx | 061=%.0f%% 6502=%.0f%% "
+                   "lcd=%.0f%% mix=%.0f%% | q=%d rate=%u starv+%u ovr+%u\n",
+                   (unsigned long long)wall, (unsigned long long)emu,
+                   wall ? (double)emu / (double)wall : 0.0,
+                   wall ? 100.0 * dsp_ms / (double)wall : 0.0,
+                   wall ? 100.0 * cpu_ms / (double)wall : 0.0,
+                   wall ? 100.0 * lcd_ms / (double)wall : 0.0,
+                   wall ? 100.0 * mix_ms / (double)wall : 0.0,
+                   dsp061_queue_len(), (unsigned)nc3_dsp_sample_rate(),
+                   (unsigned)(dsp061_starves - last_starv),
+                   (unsigned)(dsp061_overruns - last_ovr));
+            fflush(stdout);
+            last_wall = now_wall;       last_emu = g_emu_ms_total;
+            last_dsp_us = nc3_dsp_busy_us; last_slice_us = g_slice_busy_us;
+            last_lcd_us = nc3_lcd_busy_us; last_mix_us = dsp061_mix_busy_us;
+            last_starv = dsp061_starves;   last_ovr = dsp061_overruns;
+        }
     }
 
   }
