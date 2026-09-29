@@ -18,9 +18,7 @@ static deque<uint8_t> nand_addr;
 static deque<uint8_t> nand_data;
 
 static int nand_read_cnt=0;
-//char nand_ori[65536*2][512];
-static char nand[65536*2+64][528];
-//char nand_spare[65536+64][16];
+static char nand[65536*2][528];
 
 char nand_magic[11];
 
@@ -35,10 +33,10 @@ void read_nand0_file(){
     fseek(f, 0, SEEK_END);
     long long fsize = ftell(f);
     fseek(f, 0, SEEK_SET);  /* same as rewind(f); */
+    printf("<nand0_file_size=%llu>\n",fsize);
     assert(fsize<= 64*528);
     fread(p0, fsize, 1, f);
     fclose(f);
-    printf("<nand0_file_size=%llu>\n",fsize);
     for(int i=0;i<sizeof(nand_magic)-1;i++){
         nand_magic[i]=p0[0x200+0x10+i];
     }
@@ -57,10 +55,18 @@ void read_nand_file(){
     fseek(f, 0, SEEK_END);
     long long fsize = ftell(f);
     fseek(f, 0, SEEK_SET);  /* same as rewind(f); */
+    printf("<nand_file_size=%llu>\n",fsize);
+    long long expected_size=num_nand_pages*528-64*528;
+    if(fsize<expected_size){
+        printf("%s expected_size=%lld, actual_size=%lld; pad with 0xFF\n",nc2k_rom.nandFlashPath.c_str(),expected_size,fsize);
+    }
+    if(fsize>expected_size){
+        printf("%s expected_size=%lld, actual_size=%lld; ignore tailing bytes\n",nc2k_rom.nandFlashPath.c_str(),expected_size,fsize);
+        fsize=expected_size;
+    }
     assert(fsize + 64*528 <= (int)sizeof(nand));
     fread(p0, fsize, 1, f);
     fclose(f);
-    printf("<nand_file_size=%llu>\n",fsize);
 
 #if 0
     if(nc2000mode){
@@ -108,8 +114,8 @@ void write_nand_file(string file){
     if(file.empty()) file=nc2k_rom.nandFlashPath;
     else file+=".nand";
     FILE *f = fopen(file.c_str(), "wb");
-    assert(num_nand_pages*528 + 64*528 <= sizeof(nand));
-    fwrite(&nand[0][0]+ 64*528, num_nand_pages*528, 1 , f);
+    assert(num_nand_pages*528<= sizeof(nand));
+    fwrite(&nand[0][0]+ 64*528, num_nand_pages*528- 64*528 , 1 , f);
     fclose(f);
 }
 const uint8_t* nand_device_page_ptr(uint32_t page){
@@ -126,7 +132,7 @@ void clear_nand_status(){
 
 static uint8_t & nand_peek(int off){
     static uint8_t dummy;
-    if(off<0 || off>=sizeof(nand)){
+    if(off<0 || off>=num_nand_pages*528){
         dummy=0xff;
         if(debug_level>=1) printf("oops, read nand out of bound %d\n",off);
         return dummy;
@@ -182,9 +188,6 @@ uint8_t read_nand(){
         return 0xff;
     }
 
-    /*
-        special handle of read status after a long time
-    */
     if(nand_cmd[0]==0x70 && nand_cmd.size()==1 && nand_addr.size()==0 &&nand_data.size()==0) {
         clear_nand_status();
         return 0x40;
@@ -401,7 +404,7 @@ void nand_write(uint8_t value){
                 for(int i=0;i<16;i++){
                     if(nand_peek(final+i)!=0xff){
                         warn=true;
-                        //this is allowed, but wqx's software always erase before write
+                        //write without erase is allowed, but wqx's software always erase before write
                         if(forced_erase_before_write) nand_peek(final+i)=0xff;
                     }
                     nand_peek(final+i)&=nand_data[i];
@@ -432,7 +435,7 @@ void nand_write(uint8_t value){
                 for(int i=0;i<528;i++){
                     if(nand_peek(final+i)!=0xff){
                         warn=true;
-                        //this is allowed, but wqx's software always erase before write
+                        //write without erase is allowed, but wqx's software always erase before write
                         if(forced_erase_before_write) nand_peek(final+i)=0xff;
                     }
                     nand_peek(final+i)&=nand_data[i];

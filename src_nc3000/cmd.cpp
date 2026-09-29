@@ -39,7 +39,7 @@ bool is_nc2000_rom(){
 	return false;
 }
 
-bool is_nc2010_rom(){
+bool is_nc2000tw_rom(){
 	if(nand_magic[8]=='0' &&nor_buff[2]==0x4f) return true;
 	return false;
 }
@@ -474,7 +474,7 @@ void handle_cmd(string str){
 						if(debug_level>=1) printf("is nc2000 rom\n");
 						copy_to_addr(0x08be, (uint8_t*)dir_name.c_str(), dir_name.size()+1);
 					}else{
-						if(debug_level>=1) printf("is nc2010 rom\n");
+						if(debug_level>=1) printf("is nc2000tw rom\n");
 						copy_to_addr(0x08ac, (uint8_t*)dir_name.c_str(), dir_name.size()+1);
 					}
 					uint8_t buf[]={0x00,0x0b,0x05,0x00,0x01,0xc0};
@@ -554,7 +554,7 @@ void handle_cmd(string str){
 						if(debug_level>=1) printf("is nc2000 rom\n");
 						copy_to_addr(0x08be, (uint8_t*)src.c_str(), src.size()+1);
 					}else{
-						if(debug_level>=1) printf("is nc2010 rom\n");
+						if(debug_level>=1) printf("is nc2000tw rom\n");
 						copy_to_addr(0x08ac, (uint8_t*)src.c_str(), src.size()+1);
 					}
 					uint8_t buf[]={0xA9,0x80,0x8D,0xFA,0x08,0xA9,0xEF,0x8D,0xFB,0x08,0x8D,0xFC,0x08,0x00,0x15,0x05,
@@ -678,7 +678,7 @@ void handle_cmd(string str){
 							0x00,0x17,0x05,0x00,0x01,0xC0,};
 						copy_to_addr(0x3000,buf,sizeof(buf));
 					}else{
-						if(debug_level>=1) printf("is nc2010 rom\n");
+						if(debug_level>=1) printf("is nc2000tw rom\n");
 						copy_to_addr(0x08ac, (uint8_t*)target.c_str(), target.size()+1);
 						uint8_t buf[]={0x00,0x1D,0x05,0xA9,0x70,0x8D,0xE8,0x08,0xA9,0xEF,0x8D,0xE9,0x08,0x8D,0xEA,0x08,
 							0x00,0x15,0x05,0xA9,0x00,0x8D,0xF6,0x03,0xAD,0xFF,0x3F,0xC9,0x00,0xF0,0x21,0xAD,
