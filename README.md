@@ -21,8 +21,12 @@
 > git clone --recursive https://github.com/yao90s/WQX-NC3000-Emulator    # 连子模块一起拉
 > # 已经 clone 过的：git submodule update --init --recursive
 > ```
-> 需要从真机提取DSP所需的固件，文件位于真机/sysdir/升级061.bin，将文件改名为061.dat放进spce061a/rom/`，
+> 需要从真机提取 DSP 固件（**出厂 283D 那份，64 KB**）放进 `spce061a/rom/061.dat`，
 > 再生成 C 数组，`src_nc3000` 才编得过：
+>
+> ⚠️ 注意别拿 NAND 里的 `sysdir/升级061.bin` 改名顶替：那是 **284F 的升级包**，
+> 而且是"待烧写映像"（校验区前一对是全 `0000`）+ 交织存放。真机跑的是出厂 283D
+> （自测读数 `f7 10 3b 30` / `3d 28` 就是它）；用 284F 的话自检 `BB 0B` 会回 `BB FC`。
 >
 > ```powershell
 > node spce061a\tools\mk_fw_c.js spce061a\rom\061.dat spce061a\emu\firmware_061.c firmware_061

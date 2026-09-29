@@ -1,8 +1,11 @@
 #include "comm.h"
 
 /*
- * On NC3000 the same UART block at 0x3A-0x3D is *not* wired to the PC/IR port,
- * it is the link to the SPCE061A speech coprocessor.  See spce061_bridge.h.
+ * On NC3000 this UART block (0x3A-0x3D) is the link to the SPCE061A speech
+ * coprocessor - see spce061_bridge.h.
+ *
+ * NOTE (2026-09-29): 这里以前写着"这个 UART 没接到 PC/红外口" —— 那句是错的，已删。
+ * 上游作者 wangyu- 反馈红外通信一切正常，红外那条路是通的，别再引用旧说法。
  */
 #include "spce061_bridge.h"
 #define NC3_LINK() (nc3000mode)
