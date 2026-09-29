@@ -282,6 +282,7 @@ WRITE:
    JMP WRITE
 PREEND:
      INT $0517
+     INT $051C
 END: INT $0528
      JMP END  
 */
