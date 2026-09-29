@@ -321,8 +321,30 @@ void main_loop() {
         static uint64_t last_wall = 0, last_emu = 0, last_starv = 0, last_ovr = 0;
         static double   last_dsp_us = 0.0, last_slice_us = 0.0;
         static double   last_lcd_us = 0.0, last_mix_us = 0.0;
+        static FILE    *perf_fp = nullptr;
         extern double   nc3_dsp_busy_us, nc3_lcd_busy_us, dsp061_mix_busy_us;
         extern uint32_t dsp061_starves, dsp061_overruns;
+        /*
+         * 报表**自己写文件**，不依赖 `> perf.log` 重定向 —— GUI 不带 --no-console 时
+         * 会 AllocConsole() 把 stdout 抢到另一个控制台窗口，重定向会抓到空文件
+         * （用户 2026-09-29 就是踩了这个）。
+         *   set NC3_PERF=1                 -> 写到当前目录的 perf.log
+         *   set NC3_PERF=D:\perf.log       -> 写到指定路径
+         */
+        if (!perf_fp) {
+            const char *v = getenv("NC3_PERF");
+            const char *path = (v && strlen(v) > 1) ? v : "perf.log";
+            perf_fp = fopen(path, "w");
+            if (perf_fp) {
+                fprintf(perf_fp, "# NC3_PERF report  (emulator built %s %s)\n",
+                        __DATE__, __TIME__);
+                fprintf(perf_fp, "# 每行: wall=墙上毫秒 emu=模拟毫秒 speed=倍率 | 061/6502/lcd/mix 占墙上时间百分比 | q=音频队列 rate=当前采样率 starv+=补零次数 ovr+=丢样次数\n");
+                fflush(perf_fp);
+                printf("[perf] report -> %s\n", path);
+            } else {
+                printf("[perf] cannot open %s for writing\n", path);
+            }
+        }
         uint64_t now_wall = SDL_GetTicks();
         if (last_wall == 0) {
             last_wall = now_wall;       last_emu = g_emu_ms_total;
@@ -337,18 +359,22 @@ void main_loop() {
             double mix_ms = (dsp061_mix_busy_us - last_mix_us) / 1000.0;
             double cpu_ms = slice_ms - dsp_ms;          /* 主控 6502 那一侧的净额 */
             if (cpu_ms < 0.0) cpu_ms = 0.0;
-            printf("[perf] wall=%llums emu=%llums speed=%.2fx | 061=%.0f%% 6502=%.0f%% "
-                   "lcd=%.0f%% mix=%.0f%% | q=%d rate=%u starv+%u ovr+%u\n",
-                   (unsigned long long)wall, (unsigned long long)emu,
-                   wall ? (double)emu / (double)wall : 0.0,
-                   wall ? 100.0 * dsp_ms / (double)wall : 0.0,
-                   wall ? 100.0 * cpu_ms / (double)wall : 0.0,
-                   wall ? 100.0 * lcd_ms / (double)wall : 0.0,
-                   wall ? 100.0 * mix_ms / (double)wall : 0.0,
-                   dsp061_queue_len(), (unsigned)nc3_dsp_sample_rate(),
-                   (unsigned)(dsp061_starves - last_starv),
-                   (unsigned)(dsp061_overruns - last_ovr));
+            char line[256];
+            snprintf(line, sizeof line,
+                     "[perf] wall=%llums emu=%llums speed=%.2fx | 061=%.0f%% 6502=%.0f%% "
+                     "lcd=%.0f%% mix=%.0f%% | q=%d rate=%u starv+%u ovr+%u",
+                     (unsigned long long)wall, (unsigned long long)emu,
+                     wall ? (double)emu / (double)wall : 0.0,
+                     wall ? 100.0 * dsp_ms / (double)wall : 0.0,
+                     wall ? 100.0 * cpu_ms / (double)wall : 0.0,
+                     wall ? 100.0 * lcd_ms / (double)wall : 0.0,
+                     wall ? 100.0 * mix_ms / (double)wall : 0.0,
+                     dsp061_queue_len(), (unsigned)nc3_dsp_sample_rate(),
+                     (unsigned)(dsp061_starves - last_starv),
+                     (unsigned)(dsp061_overruns - last_ovr));
+            printf("%s\n", line);
             fflush(stdout);
+            if (perf_fp) { fprintf(perf_fp, "%s\n", line); fflush(perf_fp); }
             last_wall = now_wall;       last_emu = g_emu_ms_total;
             last_dsp_us = nc3_dsp_busy_us; last_slice_us = g_slice_busy_us;
             last_lcd_us = nc3_lcd_busy_us; last_mix_us = dsp061_mix_busy_us;
