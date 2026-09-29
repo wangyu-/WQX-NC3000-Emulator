@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <string>
 #include <vector>
+#include <chrono>
 
 #include "comm.h"
 #include "cpu.h"
@@ -34,6 +35,9 @@
 #include "iv_uart.h"
 
 extern int nc3_dsp_verbose;
+
+/* 墙上时间起点：用来在结尾报"模拟 20 s 花了多少墙上时间"（= 纯模拟速度） */
+static std::chrono::steady_clock::time_point g_headless_t0;
 
 static uint8_t lcd_shot[SCREEN_WIDTH * SCREEN_HEIGHT * 2];
 
@@ -782,6 +786,7 @@ int main(int argc, char *argv[]) {
         printf("ring: will dump the last %d instructions when PC hits $%04X\n",
                RING_N, ring_trigger);
     }
+    g_headless_t0 = std::chrono::steady_clock::now();
     for (int t = 0; t < ms; t++) {
         for (auto &k : keys) {
             void SetKeyWayback(int code_y, int code_x, bool down_or_up);
@@ -905,6 +910,18 @@ int main(int argc, char *argv[]) {
             printf("   block %4d (0x%05X) : %u reads\n", best, best * 16384, bestv);
             nand_blk_read[best] = 0;
         }
+    }
+
+    /*
+     * 纯模拟速度（2026-09-29 加）：headless 不做节流，所以这是"这台机器最快能跑多少倍"。
+     * > 1.00 才有余量；如果在慢机器上 < 1.00，声音必然被拖慢 —— 声卡按墙上时间要样本，
+     * 061 的样本却按模拟时间产，跟不上时 sound.cpp 只能补 0（听感就是音乐被拉长/发闷）。
+     */
+    {
+        double wall_ms = (double)std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - g_headless_t0).count();
+        printf("wall=%.0fms for %dms emulated  =>  speed=%.2fx realtime (headless, unpaced)\n",
+               wall_ms, ms, wall_ms > 0 ? (double)ms / wall_ms : 0.0);
     }
 
     print_top("PC where IO 0x3A was written", pc_at_3a_w, 6, io_access_count[1][0x3a]);
