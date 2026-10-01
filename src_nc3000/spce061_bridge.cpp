@@ -66,6 +66,12 @@ int nc3_dsp_verbose = 0;
 /* NC3_PERF：跑 061 累计花掉的墙上时间（微秒），见 spce061_bridge.h。 */
 double nc3_dsp_busy_us = 0.0;
 
+int nc3_dsp_insns_for(uint64_t main_cycles) {
+    uint64_t insns = (main_cycles * (uint64_t)N3_INSN_PER_SEC) / (uint64_t)CYCLES_SECOND;
+    if (insns > 0x7FFFFFFFULL) insns = 0x7FFFFFFFULL;   /* 追赶片别溢出 int */
+    return (int)insns;
+}
+
 namespace {
 /* 析构时累加 —— nc3_dsp_run() 有多个 return，这样不必在每个出口手写一遍。 */
 struct PerfTimer {

@@ -234,10 +234,11 @@ void RunTimeSlice(uint32_t time_slice) {
 	cycle_carry = (int64_t)(nc2k_states.cycles - cycles_at_entry) - (int64_t)new_cycles;
 
 	if(nc3000mode){
-		/* Keep the 061 in step with the main CPU: its crystal is 49.152 MHz
-		 * against the SPDC1064's 14.7456 MHz, so it needs **10/3** instructions per
-		 * main-CPU cycle (49.152 / 14.7456 = 10/3 exactly) for the audio FIQ and the
-		 * decoder to run at the real chip's rate.
+		/* Keep the 061 in step with the main CPU: its crystal is a fixed 49.152 MHz,
+		 * so it needs 49152000/CYCLES_SECOND instructions per main-CPU cycle
+		 * (14.7456 MHz → 10/3 exactly; if NC3_MCLK overrides the main clock the
+		 * ratio follows automatically - 10.24 MHz → 4.8). 结果是"每模拟毫秒"给
+		 * 061 的指令数是常数 ⇒ 改主控主频**不会**动发音/音乐的音高与时长。
 		 *
 		 * ⚠️ 2026-09-27：这里原来是 ×5（把 4.8 四舍五入了），结果 061 每秒多产 5%
 		 * 的音频样本（实测 66,996/s vs DAC 的 63,833/s），多出来的全堆在主机侧队列里
@@ -247,7 +248,7 @@ void RunTimeSlice(uint32_t time_slice) {
 		 * Additional time is handed to it from inside the UART polling
 		 * (nc3_dsp_rx_ready), so a slow 061 never deadlocks the firmware. */
 		u64_t ran = nc2k_states.cycles - cycles_at_entry;
-		nc3_dsp_run((int)(ran * 10 / 3));
+		nc3_dsp_run(nc3_dsp_insns_for(ran));
 	}
 }
 

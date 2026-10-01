@@ -43,6 +43,11 @@ void     nc3_dsp_stats(void);
 /* NC3_PERF（慢机器排查"声音被拖慢"用）：累计"跑 061"用掉的墙上时间（微秒）。
  * 由 nc3_dsp_run() 自己累加，配合 main.cpp 每秒一行的 [perf] 报表一起看。 */
 extern double nc3_dsp_busy_us;
+
+/* 主控走了 main_cycles 个主控周期 ⇒ 061 这段时间该执行多少条指令。
+ * 061 侧固定 49.152 M 条/秒，两者之比 = 49152000/CYCLES_SECOND，
+ * 所以主频若被 NC3_MCLK 改成 10.24 MHz，比例自动变 4.8，不用手改常数。 */
+int      nc3_dsp_insns_for(uint64_t main_cycles);
 /* pull decoded audio (0x8000 centred, already offset to int16) */
 int      nc3_dsp_audio(int16_t *out, int n);
 /* the DAC sample rate the 061 firmware is currently running at (Hz) */

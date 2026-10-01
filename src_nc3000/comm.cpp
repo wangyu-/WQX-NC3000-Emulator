@@ -1,5 +1,6 @@
 #include "comm.h"
 #include <cstdint>
+#include <cstdlib>
 #include <sys/types.h>
 
 /*
@@ -219,6 +220,28 @@ void init_parameters(){
      */
     CYCLES_SECOND = 3686400*(pc1000mode) + 5120*1000*(nc1020mode||nc2000mode)
                     + 14745600*nc3000mode;
+    /*
+     * NC3_MCLK=<Hz>：临时覆盖 NC3000 主控主频（只影响 nc3000 模式）。
+     *
+     * 为什么留这个开关：主控主频目前有两个说法 ——
+     *   14.7456 MHz：第 20 轮按 SPDC1064 手册第 42/43 页（TEST[1:0]=01 → PLL 14.7456M，
+     *                CKS=3 → CPU 直接用 OSC，固件开机就把 CKS 设成 3）+ 蜂鸣器实测音高定的；
+     *   ~10.24 MHz ：用户 2026-10-01 提出"真机主控大概 10MHz"。
+     * 这两者不可能同时对：蜂鸣器是**固件软件延时循环翻转 IO 0x18 bit7** 发的声，
+     * 半周期实测 ~750 个 CPU 周期 ⇒ 音高 = 主频/1499：
+     *     14.7456 M → 9.85 kHz；10.24 M → 6.84 kHz。
+     * 所以先用这个开关 A/B，拿真机录音（或改口供）再定默认值，别凭印象改常数。
+     *
+     * 注意：061（语音 DSP）那边的指令率是它自己的晶振决定的（49.152 MHz，固定），
+     * 主控↔061 的比例按 49152000/CYCLES_SECOND 自动折算，所以改这里**不会**动发音/音乐。
+     */
+    if (nc3000mode) {
+        const char *mclk = getenv("NC3_MCLK");
+        if (mclk && atoi(mclk) > 0) {
+            CYCLES_SECOND = (uint32_t)atoi(mclk);
+            printf("[mclk] NC3_MCLK=%u Hz (默认 14745600)\n", CYCLES_SECOND);
+        }
+    }
     CYCLES_SECOND *= oc_factor;
     CYCLES_MS = CYCLES_SECOND / 1000;
     printf("cycles per second is %d\n",CYCLES_SECOND);
