@@ -508,19 +508,49 @@ void cpu_run3(){
 				}
 			}
 
-			uint32_t sample_hz=get_sample_hz();
-			if(rtc_speed!=1.0) {
-				sample_hz=int(sample_hz*rtc_speed);
-			}
-			if(sample_hz>0 && trigger_x_times_per_s(sample_hz)){
-				if(debug_level>=2) printf("IV_SAMPLE triggered\n");
-				put_iv(IV_SAMPLE);
-			}
-
 			uint8_t iv=peek_iv();
 			if(iv!=IV_NONE){
 				cpu->set_irq_pending();
 				warm_reset_if_clkoff();
+			}
+		}
+
+		/* ---- RCR0 高 4 位选定的"可编程中断"（采样中断）单独按自己的频率发 ----
+		 *
+		 * 真机 RCR0=0xB0 时（固件 bank1 $5677 等 RTC 中断用的就是这个设置）
+		 *   get_sample_hz() = 1<<(0xB-1) = **1024 Hz**。
+		 *
+		 * 老实现把这段塞在上面那个 1/256 s 的循环里、每圈最多 put_iv() 一次：
+		 *   循环一秒只跑 256 次 ⇒ 这个中断被硬压到 256 Hz，慢了整整 4 倍。
+		 *   靠它数拍子的东西全都跟着慢：蜂鸣器提示音的"音符间隔"（关中断后
+		 *   等 $06FC 减到 0）真机 100 个单位 ≈ 98 ms，模拟器却是 390 ms
+		 *   （细节见本机文档 docs/NC3000_通讯管理提示声音.md §4、改造计划 §29 —— 那两份文档不入库）。
+		 *
+		 * cpu_run3() 每 ~64 个 CPU 周期就被调一次（14.7456 MHz 下 ≈23 万次/秒），
+		 * 粒度足够细，所以这里每次调用最多补一个，长期速率就精确等于 sample_hz。 */
+		{
+			static uint64_t sample_next_cyc = 0;
+			uint32_t sample_hz = get_sample_hz();
+			if(rtc_speed!=1.0) sample_hz=(uint32_t)(int)(sample_hz*rtc_speed);
+			if(sample_hz==0){
+				sample_next_cyc = 0;
+			}else{
+				uint64_t period = CYCLES_SECOND / sample_hz;   /* 周期 = 多少个 CPU 周期 */
+				if(period==0) period = 1;
+				/* 首次，或者主频/时钟档位刚变过（差得太远）：重新对齐，别去追补 */
+				if(sample_next_cyc==0 || sample_next_cyc + 8*period < cycles
+				   || cycles + 8*period < sample_next_cyc)
+					sample_next_cyc = cycles;
+				if(cycles >= sample_next_cyc){
+					if(debug_level>=2) printf("IV_SAMPLE triggered\n");
+					put_iv(IV_SAMPLE);
+					uint8_t iv=peek_iv();
+					if(iv!=IV_NONE){
+						cpu->set_irq_pending();
+						warm_reset_if_clkoff();
+					}
+					sample_next_cyc = cycles + period;
+				}
 			}
 		}
 	}
