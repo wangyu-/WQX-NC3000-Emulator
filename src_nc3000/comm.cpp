@@ -167,7 +167,7 @@ int total_size;
 
 bool enable_lcd_latency_effect = true;
 uint32_t LCD_INNER_REFRESH_INTERVAL=8; //unit ms
-uint32_t LCD_OUTER_REFRESH_INTERVAL=16;
+uint32_t LCD_OUTER_REFRESH_INTERVAL=33;
 string lcdstripe_suffix;
 
 int lcd_effect_charge_a=1;
