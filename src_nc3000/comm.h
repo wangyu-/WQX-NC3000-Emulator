@@ -205,6 +205,8 @@ extern uint32_t LCD_OUTER_REFRESH_INTERVAL;
 
 extern string lcdstripe_suffix;
 
+extern bool enable_lcd_debug;
+
 extern bool pro_key;
 
 /* headless test harness (see headless/main_headless.cpp) */

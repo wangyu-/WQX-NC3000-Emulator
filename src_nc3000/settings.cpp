@@ -169,6 +169,7 @@ void process_args(int argc, char *argv[])
 		{"keymap", required_argument, 0, 1},
 		{"key-trace", required_argument, 0, 1},
 		{"port0-trace", required_argument, 0, 1},
+		{"lcd-debug", no_argument, 0, 1},
 		{NULL, 0, 0, 0}
 	};
 	string uart_dev_name;
@@ -448,6 +449,9 @@ void process_args(int argc, char *argv[])
 			}
 			else if (strcmp(long_options[option_index].name,"port0-trace")==0){
 				nc3000_port0_trace = atoi(optarg);
+			}
+			else if (strcmp(long_options[option_index].name,"lcd-debug")==0){
+				enable_lcd_debug = true;
 			}
 			else
 			{
