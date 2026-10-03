@@ -295,6 +295,36 @@ void __iocallconv Write23Unknow( BYTE write, BYTE value )
 // Keypad registers
 //////////////////////////////////////////////////////////////////////////
 unsigned /*char*/ keypadmatrix[8][16] = {};
+
+/*
+ * NC3000 Keypad Scanning Model (SPDC1064 SoC):
+ *
+ * Matrix Structure: 8 Rows x 8 Columns (keypadmatrix[y][x])
+ * - Rows (y = 0..7): Connected to Port 1 (P10..P17).
+ *   Direction controlled by IO $15 (w15_port1_DIR107): 1 = output, 0 = input.
+ * - Columns (x = 0..7):
+ *   Col 0: Port 0 bit 0 (P00) - Top hotkeys (网络, PDA, 计算, 时间, 开/关, 英汉, AHD, 剑桥)
+ *   Col 1: Port 6 bit 1 (P61) - Arrow keys & navigation (O, L, ↑, ↓, P, 输入, ⇟, →)
+ *          (Also responds to Port 0 bit 1 for NC2000-compatible games)
+ *   Col 2: Port 6 bit 0 (P60) - F1..F4 (插入, 删除, 查找, 修改, 跟读)
+ *          (Also responds to Port 0 bit 2 for NC2000-compatible games)
+ *   Col 3: Port 6 bit 2 (y=0..2: 录音, 复读, 发音暂停) / bit 3 (y=3: 红外接收)
+ *          (Also responds to Port 0 bit 3 for NC2000-compatible games)
+ *   Col 4: Port 0 bit 4 (P04) - QWERTY row (Q, W, E, R, T, Y, U, I)
+ *   Col 5: Port 0 bit 5 (P05) - ASDF row (A, S, D, F, G, H, J, K)
+ *   Col 6: Port 0 bit 6 (P06) - ZXCV row (Z, X, C, V, B, N, M, ⇞)
+ *   Col 7: Port 0 bit 7 (P07) - Bottom row (求助, 中英数, 输入法, 跳出, 符号, ., 空格, ←)
+ *
+ * Scanning Modes:
+ * 1. Normal Scan (BIOS / OS):
+ *    Rows (Port 1) are outputs, columns (Port 0 & Port 6) are inputs.
+ *    BIOS drives active-high rows one at a time and reads Port 0 ($08) and Port 6 ($1E).
+ * 2. Reverse Scan (Games avoiding key ghosting / conflicts):
+ *    Rows (Port 1) are inputs ($15 = 0x00).
+ *    Columns are driven as outputs via Port 6 ($1E) and/or Port 0 ($08).
+ *    The game reads Port 1 ($09) to detect pressed keys without ghosting.
+ *    Supports both active-high (driven col = 1) and active-low (driven col = 0).
+ */
 void UpdateKeypadRegisters()
 {
     extern int nc3000_key_trace;
@@ -389,7 +419,7 @@ void UpdateKeypadRegisters()
                 } else {
                     // port0x -> port1y, and y is receive
                     // port0,port1 -> p30
-                    if (y >= 2 ||nc2000mode||nc3000mode||nc1020mode) {
+                    if (y >= 2 || nc2000mode || nc1020mode) {
                         if (keypadmatrix[y][x]==1 && ((port0data & xbit) != 0)) {
                             tmpdest1 |= port1controlbit;
                         }
@@ -439,11 +469,51 @@ void UpdateKeypadRegisters()
      * A pressed key connects the driven column line to its row line on port1.
      */
     unsigned char tmpdest1_lo = 0;
+    bool active_low = false;
     if (nc3000mode) {
+        if (port1control == 0x00) {
+            unsigned char p6_lo = w1e_port6_OL & 0x0F;
+            if (p6_lo == 0x0E || p6_lo == 0x0D || p6_lo == 0x0B || p6_lo == 0x07) {
+                active_low = true;
+            }
+            unsigned char p0_hi = w08_port0_OL & 0xF0;
+            if (p0_hi == 0xE0 || p0_hi == 0xD0 || p0_hi == 0xB0 || p0_hi == 0x70) {
+                active_low = true;
+            }
+            unsigned char p0_lo = w08_port0_OL & 0x0F;
+            if (p0_lo == 0x0E || p0_lo == 0x0D || p0_lo == 0x0B || p0_lo == 0x07) {
+                active_low = true;
+            }
+        }
+
         for (int y = 0; y < 8; y++) {
-            for (int c = 0; c < 4; c++) {
-                if (keypadmatrix[y][c] == 1 && (w1e_port6_OL & (1 << c)) != 0) {
-                    tmpdest1 |= (unsigned char)(1 << y);
+            if (port1control & (1 << y)) continue;
+
+            for (int x = 0; x < 8; x++) {
+                if (!keypadmatrix[y][x]) continue;
+
+                bool col_high = false;
+                if (x == 0) {
+                    col_high = (w08_port0_OL & 0x01) != 0;
+                } else if (x == 1) {
+                    col_high = ((w1e_port6_OL & 0x02) != 0) || ((w08_port0_OL & 0x02) != 0);
+                } else if (x == 2) {
+                    col_high = ((w1e_port6_OL & 0x01) != 0) || ((w08_port0_OL & 0x04) != 0);
+                } else if (x == 3) {
+                    unsigned char p6_mask = (y == 3) ? 0x08 : 0x04;
+                    col_high = ((w1e_port6_OL & p6_mask) != 0) || ((w08_port0_OL & 0x08) != 0);
+                } else {
+                    col_high = (w08_port0_OL & (1 << x)) != 0;
+                }
+
+                if (active_low) {
+                    if (!col_high) {
+                        tmpdest1_lo |= (unsigned char)(1 << y);
+                    }
+                } else {
+                    if (col_high) {
+                        tmpdest1 |= (unsigned char)(1 << y);
+                    }
                 }
             }
         }
@@ -473,7 +543,7 @@ void UpdateKeypadRegisters()
                 if (!keypadmatrix[y][x]) continue;
                 int c = (x == 1) ? 1 : (x == 2) ? 0 : -1;
                 if (c < 0) continue;
-                if (port1data & (1u << y)) recv |= (unsigned char)(1u << c);
+                if (w09_port1_OL & (1u << y)) recv |= (unsigned char)(1u << c);
                 else recv_lo |= (unsigned char)(1u << c);
             }
         }
@@ -488,6 +558,9 @@ void UpdateKeypadRegisters()
         // using port1control as port1mask
         // sometimes port10,11 should clean here 
         port1data &= port1control; // pre set receive bits to 0
+    }
+    if (active_low) {
+        port1data |= (unsigned char)~port1control;
     }
     // 将port0里面对应于"输入"的都清掉.
     // TODO: use rw0f_b4_DIR00
@@ -635,8 +708,6 @@ BYTE __iocallconv ReadPort6EX( BYTE read )
 void __iocallconv Write1EPort6( BYTE write, BYTE value )
 {
     w1e_port6_OL = value;
-    /* pass the driven levels through to port1's low nibble (baseline) */
-    r09_port1_ID = (BYTE)((r09_port1_ID & 0xF0) | (value & 0x0F));
     UpdateKeypadRegisters();
     (void)write;
 }

@@ -127,5 +127,6 @@ void __iocallconv Write23Unknow(BYTE write, BYTE value); // $20
 
 void CreateHotlinkMapping();
 void RemoveHotlinkMapping();
+void UpdateKeypadRegisters();
 
 #endif
