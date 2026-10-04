@@ -935,7 +935,7 @@ int main(int argc, char *argv[]) {
         if (!io_access_count[0][a] && !io_access_count[1][a]) continue;
         printf("   $%02X r=%-8u w=%-8u %s\n", a, io_access_count[0][a], io_access_count[1][a],
                (a >= 0x30 && a <= 0x33) ? "<- NC2000 DSP port range" :
-               (a >= 0x3a && a <= 0x3d) ? "<- UART (061 link)" : "");
+               (a >= 0x3a && a <= 0x3d) ? "<- UART (061 / IR / host serial)" : "");
     }
 
     int pages = 0;

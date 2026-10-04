@@ -79,6 +79,13 @@ uint8_t read_rcr0(){
  */
 static deque<uint8_t> irda_rx_q;
 static unsigned long irda_tx_count = 0;
+
+/* 主机串口后端（--uart-passthrough）：实现在本文件下面的平台分支里。
+ * 红外那条路会同时喂给主机串口（nc3000 的 IRCR 分流把 UART 交给红外时用得上）。 */
+void serial_port_write_byte(uint8_t byte);
+void serial_port_poll_incoming(void);
+bool serial_port_is_open(void);
+
 static bool irda_loopback_enabled(){
     static int v = -1;
     if(v < 0){
@@ -95,6 +102,7 @@ void irda_send(uint8_t byte){
     if(uart_log_level>=1) printf("[irda] tx %02X (n=%lu%s)\n", byte, irda_tx_count,
                                  irda_loopback_enabled()?", loopback":"");
     irda_link_send(&byte, 1);                  /* 主机桥：把 IR 字节发到 UDP 对端 */
+    serial_port_write_byte(byte);              /* 也喂给 --uart-passthrough 的串口 */
     if(irda_loopback_enabled()) irda_rx_q.push_back(byte);
 }
 /* 给将来的主机桥（串口/UDP/另一台模拟器）用：往接收队列塞一个字节 */
@@ -103,6 +111,7 @@ void irda_inject(uint8_t byte){
 }
 bool irda_rx_ready(){
     irda_link_poll();                          /* 主机桥：把 UDP 收到的字节灌进接收队列 */
+    serial_port_poll_incoming();               /* 串口收到的字节也灌进来 */
     return !irda_rx_q.empty();
 }
 uint8_t irda_recv(){
@@ -135,7 +144,165 @@ void write_rcr1(uint8_t value){
 uart host dev handle
 ====================
 */
-#if defined (ENABLE_SERIAL_PORT)
+#if defined(__MINGW32__)
+/* ==========================================================================
+ * 主机串口后端（Windows 原生，不依赖 libserialport）
+ *
+ * 作用跟上游 wangyu-/NC2000 的 --uart-passthrough 一样：把电脑上的串口
+ * 透传给文曲星的 UART（红外和串口在机器侧是同一个口）。
+ *   .\nc3000.exe ... --uart-passthrough COM3
+ * 读是非阻塞的（ReadIntervalTimeout=MAXDWORD ⇒ 没数据立刻返回），
+ * 用 ClearCommError() 的 cbInQue 判断"有没有数据"，跟 libserialport 那版的
+ * sp_input_waiting() 语义一致。
+ *
+ * 注意：nc3000 模式下 $3A-$3D 平时归 061，只有固件进红外（IRCR != 0，
+ * 见 irda_uart_active()）时才由红外那条路接管；红外那条路会把字节同时喂给
+ * 串口和 UDP 桥，所以 --uart-passthrough 和 NC3_IR_UDP 可以一起用。
+ * ========================================================================== */
+#include <windows.h>
+
+void handle_uart_parameter_change();      /* 定义在本分支末尾 */
+
+#ifndef ONESTOPBITS
+#define ONESTOPBITS 0                     /* MinGW 的 winbase.h 有些版本没给这个别名 */
+#endif
+
+static HANDLE serial_handle = INVALID_HANDLE_VALUE;
+static int current_baudrate = 115200;
+static int current_wordlen  = 8;
+static int current_stopbits = 1;
+static int current_parity   = 0;        /* 0=none 1=odd 2=even 3=mark 4=space */
+
+static bool serial_open(){ return serial_handle != INVALID_HANDLE_VALUE; }
+
+bool serial_port_is_open(){ return serial_open(); }
+
+static void serial_write_raw(uint8_t byte){
+    DWORD written = 0;
+    if(!WriteFile(serial_handle, &byte, 1, &written, NULL) && uart_log_level>=1){
+        printf("[uart] WriteFile failed (GetLastError=%lu)\n", GetLastError());
+    }
+}
+static bool serial_read_raw(uint8_t *out){
+    DWORD got = 0;
+    if(!ReadFile(serial_handle, out, 1, &got, NULL) || got != 1) return false;
+    return true;
+}
+static bool serial_in_que(){
+    if(!serial_open()) return false;
+    COMSTAT st; DWORD errs = 0;
+    if(!ClearCommError(serial_handle, &errs, &st)) return false;
+    return st.cbInQue > 0;
+}
+
+void serial_port_write_byte(uint8_t byte){
+    if(serial_open()) serial_write_raw(byte);
+}
+void serial_port_poll_incoming(void){
+    if(!irda_uart_active() || !serial_open()) return;
+    for(int i = 0; i < 64; i++){
+        if(!serial_in_que()) break;
+        uint8_t b = 0xff;
+        if(!serial_read_raw(&b)) break;
+        irda_inject(b);
+    }
+}
+
+void open_serial_port(char *port_name){
+    char path[128];
+    if(strncmp(port_name, "\\\\.\\", 4) == 0) snprintf(path, sizeof path, "%s", port_name);
+    else snprintf(path, sizeof path, "\\\\.\\%s", port_name);   /* COM10 以上必须这么写 */
+    HANDLE h = CreateFileA(path, GENERIC_READ|GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    if(h == INVALID_HANDLE_VALUE){
+        printf("[uart] open %s failed (GetLastError=%lu)\n", path, GetLastError());
+        return;
+    }
+    serial_handle = h;
+    COMMTIMEOUTS to;
+    memset(&to, 0, sizeof to);
+    to.ReadIntervalTimeout = MAXDWORD;      /* 有就返回，没有立刻返回 0 */
+    to.WriteTotalTimeoutConstant = 1000;
+    SetCommTimeouts(serial_handle, &to);
+    PurgeComm(serial_handle, PURGE_RXCLEAR | PURGE_TXCLEAR);
+    current_baudrate = 115200; current_wordlen = 8; current_stopbits = 1; current_parity = 0;
+    handle_uart_parameter_change();          /* 按固件当前 BSR/LCR 设一遍（要 --uart-advance）*/
+    printf("[uart] passthrough %s opened\n", path);
+}
+
+bool is_write_ready() {
+    if(irda_uart_active()) return true;
+    if(NC3_LINK()) return true;
+    return serial_open();
+}
+bool is_read_ready() {
+    if(irda_uart_active()) return irda_rx_ready();
+    if(NC3_LINK()) return nc3_dsp_rx_ready();
+    return serial_in_que();
+}
+void write_one_byte(uint8_t byte) {
+    if(irda_uart_active()) { irda_send(byte); return; }
+    if(NC3_LINK()) { nc3_dsp_write(byte); return; }
+    if(!serial_open()) return;
+    serial_write_raw(byte);
+}
+uint8_t read_one_byte() {
+    if(irda_uart_active()) return irda_recv();
+    if(NC3_LINK()) return nc3_dsp_read();
+    if(!serial_open()) return 0xff;
+    uint8_t b = 0xff;
+    if(!serial_read_raw(&b)) return 0xff;
+    return b;
+}
+void clear_read_buffer(const char *hint){
+    if(!serial_open()) return;
+    PurgeComm(serial_handle, PURGE_RXCLEAR);
+    if(uart_log_level>=2) printf("[uart] clear read buffer (%s)\n", hint ? hint : "");
+}
+void handle_uart_parameter_change(){
+    if(!uart_advance) return;
+    if(!serial_open()) return;
+    int baud_code = nc2k_states.BSR & 0x0f;
+    if(baud_code > 12) baud_code = 12;
+    static const int baud_tab[13] = {230400,115200,57600,38400,19200,9600,4800,
+                                     2400,1200,600,300,150,75};
+    int baud = baud_tab[baud_code];
+    int wordlen  = (nc2k_states.LCR & 0x01) ? 8 : 7;
+    int stopbits = (nc2k_states.LCR & 0x02) ? 2 : 1;
+    int paritybits = (nc2k_states.LCR >> 2) & 0x7;
+    BYTE parity = NOPARITY;
+    if(paritybits == 1) parity = ODDPARITY;
+    else if(paritybits == 3) parity = EVENPARITY;
+    else if(paritybits == 5) parity = MARKPARITY;
+    else if(paritybits == 7) parity = SPACEPARITY;
+    else if(paritybits != 0 && uart_log_level>=1) printf("[uart] unsupported parity %d -> none\n", paritybits);
+    if(baud == current_baudrate && wordlen == current_wordlen &&
+       stopbits == current_stopbits && (int)parity == current_parity) return;
+    DCB dcb;
+    memset(&dcb, 0, sizeof dcb);
+    dcb.DCBlength = sizeof dcb;
+    if(!GetCommState(serial_handle, &dcb)){
+        printf("[uart] GetCommState failed (GetLastError=%lu)\n", GetLastError());
+        return;
+    }
+    dcb.BaudRate = (DWORD)baud;
+    dcb.ByteSize = (BYTE)wordlen;
+    dcb.Parity   = parity;
+    dcb.StopBits = (stopbits == 2) ? TWOSTOPBITS : ONESTOPBITS;
+    dcb.fBinary = TRUE;
+    dcb.fParity = (parity != NOPARITY);
+    dcb.fOutxCtsFlow = FALSE; dcb.fOutxDsrFlow = FALSE; dcb.fDsrSensitivity = FALSE;
+    dcb.fOutX = FALSE; dcb.fInX = FALSE; dcb.fAbortOnError = FALSE;
+    dcb.fDtrControl = DTR_CONTROL_ENABLE; dcb.fRtsControl = RTS_CONTROL_ENABLE;
+    if(!SetCommState(serial_handle, &dcb)){
+        printf("[uart] SetCommState failed (GetLastError=%lu)\n", GetLastError());
+        return;
+    }
+    current_baudrate = baud; current_wordlen = wordlen;
+    current_stopbits = stopbits; current_parity = (int)parity;
+    if(uart_log_level>=1) printf("[uart] %d %dN%d%s\n", baud, wordlen, stopbits,
+                                 parity ? " (parity on)" : "");
+}
+#elif defined (ENABLE_SERIAL_PORT)
 #include <libserialport.h>
 static int check(enum sp_return result)
 {
@@ -308,6 +475,26 @@ void handle_uart_parameter_change(){
         current_parity=parity;
     }
 }
+
+/* 红外那条路也走这个串口（nc3000 的 IRCR 分流把 UART 交给红外时用得上） */
+bool serial_port_is_open(){ return uart_port != nullptr; }
+void serial_port_write_byte(uint8_t byte){
+    if(!uart_port) return;
+    unsigned int timeout_ms = 1000;
+    check(sp_blocking_write(uart_port, &byte, 1, timeout_ms));
+}
+void serial_port_poll_incoming(void){
+    if(!irda_uart_active() || !uart_port) return;
+    for(int i = 0; i < 64; i++){
+        int waiting = sp_input_waiting(uart_port);
+        if(waiting <= 0) break;
+        unsigned char buf[2];
+        unsigned int timeout_ms = 1000;
+        int r = check(sp_blocking_read(uart_port, buf, 1, timeout_ms));
+        if(r != 1) break;
+        irda_inject(buf[0]);
+    }
+}
 #else
 void open_serial_port(char *port_name){
     printf("WARN: open_serial_port() is called but it is disabled at compile time\n");
@@ -318,6 +505,9 @@ void write_one_byte(uint8_t byte) {if(irda_uart_active()) { irda_send(byte); ret
 uint8_t read_one_byte() {if(irda_uart_active()) return irda_recv(); if(NC3_LINK()) return nc3_dsp_read(); return 0xff;}
 void clear_read_buffer(const char *hint){return;}
 void handle_uart_parameter_change(){}
+bool serial_port_is_open(){ return false; }
+void serial_port_write_byte(uint8_t byte){ (void)byte; }
+void serial_port_poll_incoming(void){}
 #endif
 /*
 ====================
