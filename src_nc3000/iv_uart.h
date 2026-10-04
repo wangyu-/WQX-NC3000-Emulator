@@ -20,6 +20,9 @@ void irda_inject(uint8_t byte);    /* 给将来的主机桥：注入一个"收�
 bool irda_rx_ready(void);
 uint8_t irda_recv(void);
 
+/* UART 归属（061 仅会话期间占用）：$0E bit3 的 /RESET 脉冲 = 061 会话开始 */
+void uart_061_session_begin(void);
+
 const int RCR1_SAMPLE= 0x04;
 const int RCR1_ALARM= 0x02;
 const int RCR1_2HZ=   0x01;

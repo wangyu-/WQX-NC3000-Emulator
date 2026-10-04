@@ -711,6 +711,7 @@ void io_v2_write(int address, int value) {
             ioReg[address] = (uint8_t)(value & ~0x10);   /* bit4 是输入，别存 */
             if (!(old & 0x08) && (value & 0x08)) {
                 nc3_dsp_boot();                          /* 放开复位 → 061 重启 */
+                uart_061_session_begin();                /* UART 归属 061（会话开始）*/
             }
             return;
         }

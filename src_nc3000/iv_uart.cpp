@@ -86,6 +86,99 @@ void serial_port_write_byte(uint8_t byte);
 void serial_port_poll_incoming(void);
 bool serial_port_is_open(void);
 
+/* ==================== UART 归属：061 / 红外 / 主机 ====================
+ * nc3000 的 $3A-$3D 被三方共用（见 docs/NC3000_红外与DSP端口分流.md）：
+ *   061 语音、红外（IRCR 模式）、有线/红外**通讯**（bank1 $63A2 发 / $6394 收，裸 UART）。
+ * 旧实现把所有非 IrDA 的字节都塞给 061 ⇒ "通讯管理 → 有线通讯"的探针（实测 $3A <- C0）
+ * 进了 061，ftplink 自然连不上。
+ *
+ * 现在按"会话"分（NC3_UART_OWNER=auto|061|host 可覆盖，默认 auto）：
+ *   auto: 061 只在会话进行中占有 UART ——
+ *     会话开始 = /RESET 脉冲（io_new.cpp $0E bit3 → nc3_dsp_boot()）或主控发出 0xBB（握手）
+ *     会话结束 = 主控发出 0xAA（stop 0xAA 00 / 睡眠 0xAA 01）
+ *     其余时间 UART 归"主机"= 串口(--uart-passthrough) + UDP 桥(NC3_IR_UDP) + 本地回环
+ *   IRCR != 0 时永远优先走红外（也就是同一条主机路）。
+ */
+static int  uart_owner_mode = -1;        /* 0=host 1=061 2=auto */
+static bool uart_061_session = false;
+static uint64_t uart_061_last_cyc = 0;
+static bool uart_061_aa_pending = false;   /* 见到 0xAA 后，让它后面那个参数字节也归 061 */
+#define UART_061_IDLE_MS 5000            /* 兜底：这么久没有 061 数据 ⇒ 会话结束 */
+
+static int uart_owner_mode_get(){
+    if(uart_owner_mode < 0){
+        const char *e = getenv("NC3_UART_OWNER");
+        if(e && (e[0]=='0' || e[0]=='h' || e[0]=='H')) uart_owner_mode = 0;
+        else if(e && (e[0]=='1' || e[0]=='6'))          uart_owner_mode = 1;
+        else                                            uart_owner_mode = 2;
+        printf("[uart] owner mode = %s\n",
+               uart_owner_mode==0 ? "host (串口/UDP，等于上游行为，061 收不到字节)" :
+               uart_owner_mode==1 ? "061 (旧行为)" : "auto (061 仅会话期间)");
+    }
+    return uart_owner_mode;
+}
+static bool uart_061_active(){
+    int m = uart_owner_mode_get();
+    if(m == 1) return true;
+    if(m == 0) return false;
+    if(uart_061_session){
+        uint32_t div = CYCLES_MS ? (uint32_t)CYCLES_MS : 1;
+        uint32_t now_ms  = (uint32_t)(nc2k_states.cycles / div);
+        uint32_t last_ms = (uint32_t)(uart_061_last_cyc / div);
+        if(now_ms - last_ms > UART_061_IDLE_MS){
+            uart_061_session = false;
+            if(uart_log_level>=1)
+                printf("[uart] 061 session end (idle > %d ms) -> UART 归主机\n", UART_061_IDLE_MS);
+        }
+    }
+    return uart_061_session;
+}
+/* 061 的 $0E bit3 /RESET 脉冲 = 会话开始（io_new.cpp 调） */
+void uart_061_session_begin(){
+    if(uart_owner_mode_get() == 0) return;
+    if(!uart_061_session && uart_log_level>=1) printf("[uart] 061 session begin (/RESET)\n");
+    uart_061_session = true;
+    uart_061_last_cyc = nc2k_states.cycles;
+}
+static bool uart_goes_to_061(){
+    if(!nc3000mode) return false;          /* 其它机型没有 061，UART 归串口 */
+    if(irda_uart_active()) return false;   /* 红外优先 */
+    return uart_061_active();
+}
+
+/* 发一个字节时**按字节**决定归属（会话外收到 0xBB 握手 ⇒ 重新判给 061）：
+ *   0xBB      = 061 握手，任何时候都算"会话开始"（061 唤醒后必须重新握手）
+ *   0xAA 01   = 061 休眠 ⇒ 会话结束，UART 交回主机（红外/串口/UDP）
+ *   0xAA 00   = 061 停止，会话继续
+ *   其余      = 会话中归 061；会话外归主机 */
+static bool uart_tx_byte_to_061(uint8_t b){
+    int m = uart_owner_mode_get();
+    if(m == 0) return false;
+    if(m == 1) return true;
+    if(irda_uart_active()) return false;
+    if(uart_061_session){
+        uart_061_last_cyc = nc2k_states.cycles;
+        if(b == 0xAA){
+            uart_061_aa_pending = true;
+        }else if(uart_061_aa_pending){
+            uart_061_aa_pending = false;
+            if(b == 0x01){
+                uart_061_session = false;
+                if(uart_log_level>=1) printf("[uart] 061 session end (0xAA 01 sleep) -> UART 归主机\n");
+            }
+        }
+        return true;
+    }
+    if(b == 0xBB){
+        uart_061_aa_pending = false;
+        uart_061_session = true;
+        uart_061_last_cyc = nc2k_states.cycles;
+        if(uart_log_level>=1) printf("[uart] 061 session begin (0xBB handshake)\n");
+        return true;
+    }
+    return false;
+}
+
 static bool irda_loopback_enabled(){
     static int v = -1;
     if(v < 0){
@@ -230,24 +323,24 @@ void open_serial_port(char *port_name){
 }
 
 bool is_write_ready() {
-    if(irda_uart_active()) return true;
-    if(NC3_LINK()) return true;
+    if(uart_goes_to_061()) return true;
+    if(NC3_LINK()) return true;                 /* 红外/主机路：随时可写 */
     return serial_open();
 }
 bool is_read_ready() {
-    if(irda_uart_active()) return irda_rx_ready();
-    if(NC3_LINK()) return nc3_dsp_rx_ready();
+    if(uart_goes_to_061()) return nc3_dsp_rx_ready();
+    if(NC3_LINK()) return irda_rx_ready();      /* 红外/主机：串口 + UDP + 回环 */
     return serial_in_que();
 }
 void write_one_byte(uint8_t byte) {
-    if(irda_uart_active()) { irda_send(byte); return; }
-    if(NC3_LINK()) { nc3_dsp_write(byte); return; }
+    if(uart_tx_byte_to_061(byte)) { nc3_dsp_write(byte); return; }
+    if(NC3_LINK()) { irda_send(byte); return; }
     if(!serial_open()) return;
     serial_write_raw(byte);
 }
 uint8_t read_one_byte() {
-    if(irda_uart_active()) return irda_recv();
-    if(NC3_LINK()) return nc3_dsp_read();
+    if(uart_goes_to_061()) return nc3_dsp_read();
+    if(NC3_LINK()) return irda_recv();
     if(!serial_open()) return 0xff;
     uint8_t b = 0xff;
     if(!serial_read_raw(&b)) return 0xff;
@@ -351,7 +444,7 @@ void open_serial_port(char *port_name){
 bool is_write_ready() {
     /* $3B bit5/6: as far as the firmware is concerned the transmit holding
      * register is empty; flow control for the 061 is IO 0x0E bit4. */
-    if(irda_uart_active()) return true;
+    if(uart_goes_to_061()) return true;
     if(NC3_LINK()) return true;
     if(!uart_port) return false;
     int waiting = check(sp_output_waiting(uart_port));
@@ -362,8 +455,8 @@ bool is_write_ready() {
 }
 
 bool is_read_ready() {
-    if(irda_uart_active()) return irda_rx_ready();
-    if(NC3_LINK()) return nc3_dsp_rx_ready();
+    if(uart_goes_to_061()) return nc3_dsp_rx_ready();
+    if(NC3_LINK()) return irda_rx_ready();
     if(!uart_port) return false;
     int bytes_waiting = check(sp_input_waiting(uart_port));
     if (bytes_waiting < 0) {
@@ -372,8 +465,8 @@ bool is_read_ready() {
     return bytes_waiting>0;
 }
 void write_one_byte(uint8_t byte) {
-    if(irda_uart_active()) { irda_send(byte); return; }
-    if(NC3_LINK()) { nc3_dsp_write(byte); return; }
+    if(uart_tx_byte_to_061(byte)) { nc3_dsp_write(byte); return; }
+    if(NC3_LINK()) { irda_send(byte); return; }
     if(!uart_port) return ;
     if(!is_write_ready()){
         if(uart_log_level>=1) printf("uart write but not ready\n");
@@ -388,8 +481,8 @@ void write_one_byte(uint8_t byte) {
 }
 
 uint8_t read_one_byte() {
-    if(irda_uart_active()) return irda_recv();
-    if(NC3_LINK()) return nc3_dsp_read();
+    if(uart_goes_to_061()) return nc3_dsp_read();
+    if(NC3_LINK()) return irda_recv();
     if(!uart_port) return 0xff;
     if(!is_read_ready()){
         if(uart_log_level>=1) printf("uart read but not ready\n");
@@ -499,10 +592,10 @@ void serial_port_poll_incoming(void){
 void open_serial_port(char *port_name){
     printf("WARN: open_serial_port() is called but it is disabled at compile time\n");
 }
-bool is_write_ready() {if(irda_uart_active()) return true; if(NC3_LINK()) return true; return false;}
-bool is_read_ready() {if(irda_uart_active()) return irda_rx_ready(); if(NC3_LINK()) return nc3_dsp_rx_ready(); return false;}
-void write_one_byte(uint8_t byte) {if(irda_uart_active()) { irda_send(byte); return; } if(NC3_LINK()) { nc3_dsp_write(byte); } return;}
-uint8_t read_one_byte() {if(irda_uart_active()) return irda_recv(); if(NC3_LINK()) return nc3_dsp_read(); return 0xff;}
+bool is_write_ready() {if(uart_goes_to_061()) return true; if(NC3_LINK()) return true; return false;}
+bool is_read_ready() {if(uart_goes_to_061()) return nc3_dsp_rx_ready(); if(NC3_LINK()) return irda_rx_ready(); return false;}
+void write_one_byte(uint8_t byte) {if(uart_tx_byte_to_061(byte)) { nc3_dsp_write(byte); return; } if(NC3_LINK()) { irda_send(byte); } return;}
+uint8_t read_one_byte() {if(uart_goes_to_061()) return nc3_dsp_read(); if(NC3_LINK()) return irda_recv(); return 0xff;}
 void clear_read_buffer(const char *hint){return;}
 void handle_uart_parameter_change(){}
 bool serial_port_is_open(){ return false; }
