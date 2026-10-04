@@ -684,7 +684,6 @@ BYTE __iocallconv ReadPort0( BYTE read )
     (void)read;
 }
 
-//// hack, 主要是为了骗nc3000的按键运行起来
 BYTE __iocallconv ReadPort6EX( BYTE read )
 {
     UpdateKeypadRegisters();

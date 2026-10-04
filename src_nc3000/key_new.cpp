@@ -44,7 +44,7 @@ vector<TKeyItem*> items2000_1020 = {
         new TKeyItem(5, 0x08, 0,1, "时间", NULL, "其他",{SDLK_F10}),        // P05, P30
         new TKeyItem(6, 0x0E, 6,1, "网络", NULL, NULL,{SDLK_F11}),        // P06, P30
 };
-vector<TKeyItem*> items3000 = {
+vector<TKeyItem*> items3000_special = {
     /*
      * NC3000 front panel.  Layout taken from the official keyboard artwork
      * (info 里的 "nc3000+键盘图.JPG"):
@@ -122,6 +122,8 @@ vector<TKeyItem*> items3000 = {
     new TKeyItem(0, 0x0F, 2,3, "发音暂停", NULL, NULL, {SDLK_PAGEUP}),
     new TKeyItem(0, 0x21, 3,3, "红外接收", NULL, "side", {SDLK_LALT}),
     new TKeyItem(0, 0x27, 4,2, "跟读", NULL, NULL, {SDLK_END}),
+};
+vector<TKeyItem*> items3000_col1 = {
     /*
      * 主键盘。坐标不是猜的：用 --hold 长按 + 读固件自己解出的 $C7，
      * 逐个位置实测出来的（见 docs/NC3000_按键矩阵实测.md 第 19 节）：
@@ -131,46 +133,29 @@ vector<TKeyItem*> items3000 = {
      *   col 7 = 求助 中英数 输入法 跳出 符号 . 空格 ←
      *   col 1 = O L ↑ ↓ P 输入 ⇟ →  (0..7)   数字 9 / 0 在 O 和 P 上
      */
-    new TKeyItem(0,0,0,4,"Q","1",NULL,{SDLK_q,SDLK_1}),
-    new TKeyItem(0,0,1,4,"W","2",NULL,{SDLK_w,SDLK_2}),
-    new TKeyItem(0,0,2,4,"E","3",NULL,{SDLK_e,SDLK_3}),
-    new TKeyItem(0,0,3,4,"R","4",NULL,{SDLK_r,SDLK_4}),
-    new TKeyItem(0,0,4,4,"T","5",NULL,{SDLK_t,SDLK_5}),
-    new TKeyItem(0,0,5,4,"Y","6",NULL,{SDLK_y,SDLK_6}),
-    new TKeyItem(0,0,6,4,"U","7",NULL,{SDLK_u,SDLK_7}),
-    new TKeyItem(0,0,7,4,"I","8",NULL,{SDLK_i,SDLK_8}),
-    new TKeyItem(0,0,0,1,"O","9",NULL,{SDLK_o,SDLK_9}),
-    new TKeyItem(0,0,4,1,"P","0",NULL,{SDLK_p,SDLK_0}),
-    new TKeyItem(0,0,0,5,"A",NULL,NULL,{SDLK_a}),
-    new TKeyItem(0,0,1,5,"S",NULL,NULL,{SDLK_s}),
-    new TKeyItem(0,0,2,5,"D",NULL,NULL,{SDLK_d}),
-    new TKeyItem(0,0,3,5,"F",NULL,NULL,{SDLK_f}),
-    new TKeyItem(0,0,4,5,"G",NULL,NULL,{SDLK_g}),
-    new TKeyItem(0,0,5,5,"H",NULL,NULL,{SDLK_h}),
-    new TKeyItem(0,0,6,5,"J",NULL,NULL,{SDLK_j}),
-    new TKeyItem(0,0,7,5,"K",NULL,NULL,{SDLK_k}),
-    new TKeyItem(0,0,0,6,"Z",NULL,NULL,{SDLK_z}),
-    new TKeyItem(0,0,1,6,"X",NULL,NULL,{SDLK_x}),
-    new TKeyItem(0,0,2,6,"C",NULL,NULL,{SDLK_c}),
-    new TKeyItem(0,0,3,6,"V",NULL,NULL,{SDLK_v}),
-    new TKeyItem(0,0,4,6,"B",NULL,NULL,{SDLK_b}),
-    new TKeyItem(0,0,5,6,"N",NULL,NULL,{SDLK_n}),
-    new TKeyItem(0,0,6,6,"M",NULL,NULL,{SDLK_m}),
-    new TKeyItem(0,0,7,6,"⇞",NULL,NULL,{SDLK_COMMA}),
-    new TKeyItem(0,0,0,7,"求助",NULL,NULL,{SDLK_LEFTBRACKET}),
-    new TKeyItem(0,0,1,7,"中英数",NULL,NULL,{SDLK_RIGHTBRACKET}),
-    new TKeyItem(0,0,2,7,"输入法",NULL,NULL,{SDLK_BACKSLASH}),
-    new TKeyItem(0,0,3,7,"跳出",NULL,NULL,{SDLK_ESCAPE}),
-    new TKeyItem(0,0,4,7,"符号",NULL,NULL,{SDLK_SEMICOLON}),
-    new TKeyItem(0,0,5,7,".",NULL,NULL,{SDLK_PERIOD}),
-    new TKeyItem(0,0,6,7,"空格",NULL,NULL,{SDLK_SPACE}),
-    new TKeyItem(0,0,7,7,"←",NULL,NULL,{SDLK_LEFT}),
+    
+    /*这部分会覆盖nc2000/nc1020原有的定义*/
+    new TKeyItem(0,0,0,1,"O",NULL,NULL,{SDLK_o}),
     new TKeyItem(0,0,1,1,"L",NULL,NULL,{SDLK_l}),
     new TKeyItem(0,0,2,1,"↑",NULL,NULL,{SDLK_UP}),
     new TKeyItem(0,0,3,1,"↓",NULL,NULL,{SDLK_DOWN}),
+    new TKeyItem(0,0,4,1,"P",NULL,NULL,{SDLK_p}),
     new TKeyItem(0,0,5,1,"输入",NULL,NULL,{SDLK_RETURN,SDLK_KP_ENTER}),
     new TKeyItem(0,0,6,1,"⇟",NULL,NULL,{SDLK_SLASH}),
     new TKeyItem(0,0,7,1,"→",NULL,NULL,{SDLK_RIGHT}),
+
+    /*主键盘其它部分跟nc2000是一样的，不用重复定义*/
+};
+
+vector<TKeyItem*> items3000_col1_pro_mode = {
+    new TKeyItem(0,0,0,1,"O",NULL,NULL,{SDLK_9}),
+    new TKeyItem(0,0,1,1,"L",NULL,NULL,{SDLK_o}),
+    new TKeyItem(0,0,2,1,"↑",NULL,NULL,{SDLK_UP,SDLK_l}),
+    new TKeyItem(0,0,3,1,"↓",NULL,NULL,{SDLK_DOWN,SDLK_PERIOD}),
+    new TKeyItem(0,0,4,1,"P",NULL,NULL,{SDLK_0}),
+    new TKeyItem(0,0,5,1,"输入",NULL,NULL,{SDLK_RETURN, SDLK_p}),
+    new TKeyItem(0,0,6,1,"⇟",NULL,NULL,{SDLK_SEMICOLON}),
+    new TKeyItem(0,0,7,1,"→",NULL,NULL,{SDLK_RIGHT,SDLK_SLASH}),
 };
 vector<TKeyItem*> items = {
         NULL,       // P10, P30
@@ -413,8 +398,15 @@ void init_keyitems(){
       }
     }
     if(nc3000mode) {
-      copy_items_deref(items3000, current_items);
       /* 机身侧面两个键与摇杆已按"特殊键组 / 主扫表"落位，见 items3000 里的注释。 */
+      copy_items_deref(items3000_special, current_items);
+
+      /* 下面的定义是NC3000和NC2000/1020不同的部分，会覆盖NC2000/NC1020的定义 */
+      if(!pro_key){
+        copy_items_deref(items3000_col1, current_items);
+      }else{
+        copy_items_deref(items3000_col1_pro_mode, current_items);
+      }
     }
     if(pc1000mode){
       copy_items_deref(items1000, current_items);
@@ -423,7 +415,8 @@ void init_keyitems(){
         assert(current_items[i].code_y>=0);
         assert(current_items[i].code_x>=0);
         for(auto e: current_items[i].sdl_keys){
-            //sdl_to_item[e]=item[y][x]->code;
+            //如果同一个SDL按键被多个items引用，新的会覆盖旧的，
+            //不会出现2个WQX按键被影射到同一个SDL按键的情况。
             sdl_to_item[e]=pair<int,int>(current_items[i].code_y, current_items[i].code_x);
         }
     }
