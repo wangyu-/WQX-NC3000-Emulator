@@ -39,5 +39,3 @@ __pycache__/
 *.tmp
 *.log.tmp
 
-# NGPC/NeoPop 那套第三方开发包，和本项目无关（想一起发布就删掉这行）
-tools/ngpc/

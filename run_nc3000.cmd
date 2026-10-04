@@ -11,7 +11,7 @@ REM   reference set + music  : %~dp0roms\nc3000_dl\nc3000
 REM   Lee's original 3.4 set : %~dp0roms\lee2\nc3000
 
 setlocal
-set ROM=%~dp0roms\nc3000
+set ROM=%~dp0roms\nc3000_dl\nc3000
 if not exist "%ROM%.nor" (
     echo [ERROR] ROM not found: %ROM%.nor
     echo Edit the ROM= line in this file to point at your rom set.
