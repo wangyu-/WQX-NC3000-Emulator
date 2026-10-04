@@ -16,6 +16,8 @@
 #include "iv_uart.h"
 #include "state.h"
 #include <sys/types.h>
+#include <deque>
+#include <cstdlib>
 using namespace std;
 
 int uart_log_level=0;
@@ -55,6 +57,57 @@ uint8_t get_iv(){
 
 uint8_t read_rcr0(){
     return RCR0;
+}
+
+/* ==================== 红外（IrDA）/ 主机链路 ====================
+ * NC3000 的红外和 061 语音**共用这组 UART 寄存器**（$3A-$3D）：$3D 的低 2 位选
+ * 寄存器 bank，$3A/$3B/$3C 在不同 bank 下分别是数据/LSR/IRCR/...。
+ *
+ * 怎么区分"现在归谁用" —— 靠 IRCR（$3B，bk=1），两边的初始化代码写死了不同的值：
+ *   061 语音 ：bank0 $FB8C 起，显式写 IRCR = **0**（$FBAE: `LDA #$00 / STA $3B`）
+ *   红外     ：bank16 $8A56 起，写 IRCR = **0x33**（$8A94: `LDA #$33 / STA $3B`）
+ * 所以 IRCR != 0 ⇒ 这段 UART 归红外；061 每次会话开始都会重写 IRCR=0 拿回去，
+ * 不需要额外的"归还"钩子（自洽）。
+ *
+ * 老实现把 $3A-$3D 无条件接到 061 ⇒ 自测第 11 项 `irda` 拿 061 的协议字节去和
+ * "自己刚发出去的字节"比较（bank16 $8A35：发 Y → 收 → CMP $3000,Y），必然对不上。
+ * 实测改动前 `call1 0c 10` 的 $03F0 = 0（失败）。
+ *
+ * NC3_IR_LOOPBACK=1：把发出去的字节回灌给接收端（= 真机自测那种"自己收自己"，
+ * 也是没有对手设备时的自检方式）；默认不开，就相当于真机红外前面什么都没有。
+ */
+static deque<uint8_t> irda_rx_q;
+static unsigned long irda_tx_count = 0;
+static bool irda_loopback_enabled(){
+    static int v = -1;
+    if(v < 0){
+        const char *e = getenv("NC3_IR_LOOPBACK");
+        v = (e && atoi(e)) ? 1 : 0;
+    }
+    return v != 0;
+}
+bool irda_uart_active(){
+    return (nc2k_states.IRCR != 0);
+}
+void irda_send(uint8_t byte){
+    irda_tx_count++;
+    if(uart_log_level>=1) printf("[irda] tx %02X (n=%lu%s)\n", byte, irda_tx_count,
+                                 irda_loopback_enabled()?", loopback":"");
+    if(irda_loopback_enabled()) irda_rx_q.push_back(byte);
+}
+/* 给将来的主机桥（串口/UDP/另一台模拟器）用：往接收队列塞一个字节 */
+void irda_inject(uint8_t byte){
+    irda_rx_q.push_back(byte);
+}
+bool irda_rx_ready(){
+    return !irda_rx_q.empty();
+}
+uint8_t irda_recv(){
+    if(irda_rx_q.empty()) return 0xff;
+    uint8_t v = irda_rx_q.front();
+    irda_rx_q.pop_front();
+    if(uart_log_level>=1) printf("[irda] rx %02X\n", v);
+    return v;
 }
 void write_rcr0(uint8_t value){
     if(debug_level>=1){
@@ -128,6 +181,7 @@ void open_serial_port(char *port_name){
 bool is_write_ready() {
     /* $3B bit5/6: as far as the firmware is concerned the transmit holding
      * register is empty; flow control for the 061 is IO 0x0E bit4. */
+    if(irda_uart_active()) return true;
     if(NC3_LINK()) return true;
     if(!uart_port) return false;
     int waiting = check(sp_output_waiting(uart_port));
@@ -138,6 +192,7 @@ bool is_write_ready() {
 }
 
 bool is_read_ready() {
+    if(irda_uart_active()) return irda_rx_ready();
     if(NC3_LINK()) return nc3_dsp_rx_ready();
     if(!uart_port) return false;
     int bytes_waiting = check(sp_input_waiting(uart_port));
@@ -147,6 +202,7 @@ bool is_read_ready() {
     return bytes_waiting>0;
 }
 void write_one_byte(uint8_t byte) {
+    if(irda_uart_active()) { irda_send(byte); return; }
     if(NC3_LINK()) { nc3_dsp_write(byte); return; }
     if(!uart_port) return ;
     if(!is_write_ready()){
@@ -162,6 +218,7 @@ void write_one_byte(uint8_t byte) {
 }
 
 uint8_t read_one_byte() {
+    if(irda_uart_active()) return irda_recv();
     if(NC3_LINK()) return nc3_dsp_read();
     if(!uart_port) return 0xff;
     if(!is_read_ready()){
@@ -252,10 +309,10 @@ void handle_uart_parameter_change(){
 void open_serial_port(char *port_name){
     printf("WARN: open_serial_port() is called but it is disabled at compile time\n");
 }
-bool is_write_ready() {if(NC3_LINK()) return true; return false;}
-bool is_read_ready() {if(NC3_LINK()) return nc3_dsp_rx_ready(); return false;}
-void write_one_byte(uint8_t byte) {if(NC3_LINK()) { nc3_dsp_write(byte); } return;}
-uint8_t read_one_byte() {if(NC3_LINK()) return nc3_dsp_read(); return 0xff;}
+bool is_write_ready() {if(irda_uart_active()) return true; if(NC3_LINK()) return true; return false;}
+bool is_read_ready() {if(irda_uart_active()) return irda_rx_ready(); if(NC3_LINK()) return nc3_dsp_rx_ready(); return false;}
+void write_one_byte(uint8_t byte) {if(irda_uart_active()) { irda_send(byte); return; } if(NC3_LINK()) { nc3_dsp_write(byte); } return;}
+uint8_t read_one_byte() {if(irda_uart_active()) return irda_recv(); if(NC3_LINK()) return nc3_dsp_read(); return 0xff;}
 void clear_read_buffer(const char *hint){return;}
 void handle_uart_parameter_change(){}
 #endif
@@ -377,6 +434,10 @@ void write_3b(uint8_t value){
         handle_uart_parameter_change();
     }else if(bk==1){
         //irda control register
+        if(uart_log_level>=1 && IRCR!=value){
+            printf("[irda] IRCR %02X -> %02X (%s)\n", IRCR, value,
+                   value? "UART 归红外（IrDA）" : "UART 归 061");
+        }
         IRCR=value;
     }else if(bk==2){
         CSTART=value;
