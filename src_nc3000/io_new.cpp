@@ -668,6 +668,9 @@ void io_v2_write(int address, int value) {
             if(index==0x0a) return write_rcr0(value);
             if(index==0x0b) return write_rcr1(value);
             rtc_reg[index]=value;
+            if(index == 0x20 || index == 0x24){
+                UpdateKeypadRegisters();
+            }
             return;
             //return Write3F(address,value);
         }
