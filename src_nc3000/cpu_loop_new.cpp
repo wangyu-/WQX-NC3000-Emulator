@@ -10,6 +10,7 @@
 #include "compare/pc1000bus.h"
 #include "io_new.h"
 #include "iv_uart.h"
+#include "misc/irda_link.h"
 #include "sound.h"
 #include "nand.h"
 
@@ -553,6 +554,11 @@ void cpu_run3(){
 				}
 			}
 		}
+
+		/* 红外主机桥（NC3_IR_UDP=… 才启用）：在模拟器主循环里定期收 UDP，
+		   这样即便固件此刻没碰 IR（例如对端实例只是"等着回包"），也能把
+		   收到的字节灌进 IR 接收队列。内部自己按 1 模拟毫秒限频，开销可忽略。 */
+		irda_link_poll();
 	}
 	if(pc1000mode_normal() && trigger_x_times_per_s(2)){
 		if (nmiEnable()){

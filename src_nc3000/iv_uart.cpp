@@ -15,6 +15,7 @@
 #include <set>
 #include "iv_uart.h"
 #include "state.h"
+#include "misc/irda_link.h"
 #include <sys/types.h>
 #include <deque>
 #include <cstdlib>
@@ -93,6 +94,7 @@ void irda_send(uint8_t byte){
     irda_tx_count++;
     if(uart_log_level>=1) printf("[irda] tx %02X (n=%lu%s)\n", byte, irda_tx_count,
                                  irda_loopback_enabled()?", loopback":"");
+    irda_link_send(&byte, 1);                  /* 主机桥：把 IR 字节发到 UDP 对端 */
     if(irda_loopback_enabled()) irda_rx_q.push_back(byte);
 }
 /* 给将来的主机桥（串口/UDP/另一台模拟器）用：往接收队列塞一个字节 */
@@ -100,6 +102,7 @@ void irda_inject(uint8_t byte){
     irda_rx_q.push_back(byte);
 }
 bool irda_rx_ready(){
+    irda_link_poll();                          /* 主机桥：把 UDP 收到的字节灌进接收队列 */
     return !irda_rx_q.empty();
 }
 uint8_t irda_recv(){

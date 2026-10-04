@@ -42,6 +42,7 @@ $coreSources = @(
     'nc2000.cpp',
     'misc/disassembler.cpp', 'misc/disassembler_new.cpp', 'misc/bin_dec.cpp',
     'misc/udp_server.cpp',
+    'misc/irda_link.cpp',
     'cpu_loop.cpp', 'cpu_loop_new.cpp', 'cpu.cpp', 'comm.cpp',
     'mem.cpp', 'io.cpp', 'io_new.cpp', 'rom.cpp', 'nor.cpp', 'nand.cpp', 'ram.cpp',
     'dsp/dsp.cpp', 'sound.cpp', 'cmd.cpp', 'console.cpp',
@@ -104,7 +105,9 @@ $cxxArgs = @(
     # 上面 -static 会让 ld 选静态 libSDL2.a，于是要补 SDL2 依赖的系统库；
     # 好处是出来的 exe 连 SDL2.dll 都不需要，单文件就能跑。
     '-luser32', '-lgdi32', '-lwinmm', '-limm32', '-lole32', '-loleaut32',
-    '-luuid', '-lversion', '-ladvapi32', '-lsetupapi', '-lshell32', '-lhid'
+    '-luuid', '-lversion', '-ladvapi32', '-lsetupapi', '-lshell32', '-lhid',
+    # 红外主机桥（misc/irda_link.cpp）用 winsock2
+    '-lws2_32'
 )
 
 Push-Location $root
