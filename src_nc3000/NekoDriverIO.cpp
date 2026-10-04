@@ -366,6 +366,8 @@ static void UpdateKeypadRegistersNC3000_Physical()
             int port_type = 0; // 0 = Port 0, 6 = Port 6
             int pin_bit = 0;
 
+            bool p0_is_driving = (p0_dir != 0);
+
             if (x == 0) {
                 port_type = 0; pin_bit = 0;
                 b_is_out = (p0_dir & 0x01) != 0;
@@ -373,21 +375,27 @@ static void UpdateKeypadRegistersNC3000_Physical()
             } else if (x == 1) {
                 // NC3000 hardware is P61 (bit 1 of Port 6)
                 port_type = 6; pin_bit = 1;
-                b_is_out = (w1e_port6_OL != 0x00) || ((w08_port0_OL & 0x02) != 0);
-                b_val = ((w1e_port6_OL & 0x02) != 0) || ((w08_port0_OL & 0x02) != 0);
+                bool nc2k_col = ((w08_port0_OL & 0x02) != 0) && ((p0_dir & 0x02) != 0);
+                bool p6_col = !p0_is_driving && ((w1e_port6_OL & 0x02) != 0);
+                b_is_out = p6_col || nc2k_col;
+                b_val    = p6_col || nc2k_col;
             } else if (x == 2) {
                 // NC3000 hardware is P60 (bit 0 of Port 6)
                 port_type = 6; pin_bit = 0;
-                b_is_out = (w1e_port6_OL != 0x00) || ((w08_port0_OL & 0x04) != 0);
-                b_val = ((w1e_port6_OL & 0x01) != 0) || ((w08_port0_OL & 0x04) != 0);
+                bool nc2k_col = ((w08_port0_OL & 0x04) != 0) && ((p0_dir & 0x04) != 0);
+                bool p6_col = !p0_is_driving && ((w1e_port6_OL & 0x01) != 0);
+                b_is_out = p6_col || nc2k_col;
+                b_val    = p6_col || nc2k_col;
             } else if (x == 3) {
                 port_type = 6; pin_bit = (y == 3) ? 3 : 2;
-                b_is_out = (w1e_port6_OL != 0x00) || ((w08_port0_OL & 0x08) != 0);
                 uint8_t p6_mask = (y == 3) ? 0x08 : 0x04;
-                b_val = ((w1e_port6_OL & p6_mask) != 0) || ((w08_port0_OL & 0x08) != 0);
+                bool nc2k_col = ((w08_port0_OL & 0x08) != 0) && ((p0_dir & 0x08) != 0);
+                bool p6_col = !p0_is_driving && ((w1e_port6_OL & p6_mask) != 0);
+                b_is_out = p6_col || nc2k_col;
+                b_val    = p6_col || nc2k_col;
             } else {
                 port_type = 0; pin_bit = x;
-                b_is_out = (p0_dir & (1 << pin_bit)) != 0 || p0_active_low || ((w08_port0_OL & (1 << pin_bit)) != 0);
+                b_is_out = ((p0_dir & (1 << pin_bit)) != 0) || p0_active_low;
                 b_val    = (w08_port0_OL & (1 << pin_bit)) != 0;
             }
 
@@ -396,12 +404,23 @@ static void UpdateKeypadRegistersNC3000_Physical()
             if (a_is_out && !b_is_out) {
                 if (a_val) {
                     if (port_type == 0) p0_in_hi |= (1 << pin_bit);
-                    if (port_type == 6) p6_in_hi |= (1 << pin_bit);
+                    if (port_type == 6) {
+                        p6_in_hi |= (1 << pin_bit);
+                        // Reflect to Port 0 for NC2000 compatibility if Port 0 is in input mode
+                        if (x == 1 && !(p0_dir & 0x02)) p0_in_hi |= 0x02;
+                        if (x == 2 && !(p0_dir & 0x04)) p0_in_hi |= 0x04;
+                        if (x == 3 && !(p0_dir & 0x08)) p0_in_hi |= 0x08;
+                    }
                     // Special wake-up / ON-OFF key at (4, 0)
                     if (y == 4 && x == 0 && port_type == 0) p0_in_hi |= 0x04;
                 } else {
                     if (port_type == 0) p0_in_lo |= (1 << pin_bit);
-                    if (port_type == 6) p6_in_lo |= (1 << pin_bit);
+                    if (port_type == 6) {
+                        p6_in_lo |= (1 << pin_bit);
+                        if (x == 1 && !(p0_dir & 0x02)) p0_in_lo |= 0x02;
+                        if (x == 2 && !(p0_dir & 0x04)) p0_in_lo |= 0x04;
+                        if (x == 3 && !(p0_dir & 0x08)) p0_in_lo |= 0x08;
+                    }
                 }
             }
             // Case B -> A: Column is output, Row is input
